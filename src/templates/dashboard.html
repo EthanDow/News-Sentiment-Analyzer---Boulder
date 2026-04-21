@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>News Sentiment Analyzer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { margin-bottom: 0.25rem; }
+    .sub { color: #666; margin-top: 0; }
+    form { margin: 1rem 0; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    select, input, button { font-size: 1rem; padding: 0.4rem 0.6rem; }
+    button { cursor: pointer; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: 0.95rem; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; vertical-align: top; }
+    .label { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.8rem; }
+    .positive { background: #d4f7dc; color: #137333; }
+    .negative { background: #fad2cf; color: #a50e0e; }
+    .neutral  { background: #e8eaed; color: #444; }
+    canvas { margin-top: 1rem; }
+    .empty { color: #888; font-style: italic; }
+  </style>
+</head>
+<body>
+  <h1>News Sentiment Analyzer</h1>
+  <p class="sub">Average daily sentiment for news headlines, by topic.</p>
+
+  <form method="get" action="/">
+    <label for="topic">Topic:</label>
+    <select id="topic" name="topic">
+      {% for t in topics %}
+        <option value="{{ t }}" {% if t == selected %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+    <label for="days">Days:</label>
+    <input id="days" type="number" name="days" min="1" max="60" value="{{ days }}">
+    <button type="submit">View</button>
+    <button type="button" id="refresh">Fetch fresh data</button>
+  </form>
+
+  <canvas id="chart" height="120"></canvas>
+
+  <h2>Recent headlines</h2>
+  {% if articles %}
+    <table>
+      <thead>
+        <tr><th>Published</th><th>Title</th><th>Source</th><th>Sentiment</th></tr>
+      </thead>
+      <tbody>
+      {% for a in articles %}
+        <tr>
+          <td>{{ a['published_at'][:16].replace('T', ' ') }}</td>
+          <td><a href="{{ a['url'] }}" target="_blank" rel="noopener">{{ a['title'] }}</a></td>
+          <td>{{ a['source'] or '' }}</td>
+          <td>
+            {% if a['label'] %}
+              <span class="label {{ a['label'] }}">{{ a['label'] }} ({{ '%.2f'|format(a['score']) }})</span>
+            {% else %}
+              <span class="empty">pending</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty">No articles yet. Click "Fetch fresh data" to collect headlines for this topic.</p>
+  {% endif %}
+
+  <script>
+    const topic = {{ selected|tojson }};
+    const days = {{ days|tojson }};
+
+    async function loadChart() {
+      const res = await fetch(`/api/sentiments?topic=${encodeURIComponent(topic)}&days=${days}`);
+      const data = await res.json();
+      const labels = data.points.map(p => p.day);
+      const scores = data.points.map(p => p.avg_score);
+      new Chart(document.getElementById('chart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: `Avg sentiment (${topic})`,
+            data: scores,
+            borderColor: '#1a73e8',
+            backgroundColor: 'rgba(26,115,232,0.15)',
+            fill: true,
+            tension: 0.25,
+          }]
+        },
+        options: {
+          scales: { y: { suggestedMin: -1, suggestedMax: 1 } },
+          plugins: { legend: { display: true } }
+        }
+      });
+    }
+    loadChart();
+
+    document.getElementById('refresh').addEventListener('click', async () => {
+      const btn = document.getElementById('refresh');
+      btn.disabled = true; btn.textContent = 'Fetching...';
+      await fetch(`/collect?topic=${encodeURIComponent(topic)}`, { method: 'POST' });
+      location.reload();
+    });
+  </script>
+</body>
+</html>
